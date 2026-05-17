@@ -1,0 +1,5 @@
+mcp
+vnstock>=4.0.0
+ccxt
+requests
+python-dotenv
