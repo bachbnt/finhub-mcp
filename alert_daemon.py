@@ -1,11 +1,18 @@
+# Copyright (c) 2026 bachbnt. All rights reserved.
 """
-Alert daemon - chay song song voi MCP server de kiem tra dieu kien va gui Telegram.
+alert_daemon.py — Price alert background daemon for finance-mcp.
 
-Cach dung:
-  1. Tao Telegram bot: @BotFather -> /newbot -> lay token
-  2. Lay chat ID: gui /start cho bot, vao https://api.telegram.org/bot<TOKEN>/getUpdates
-  3. cp .env.example .env -> dien TELEGRAM_BOT_TOKEN
-  4. python alert_daemon.py
+Runs alongside the MCP server, polling the shared alerts.json store at a
+configurable interval. When a price condition is met the daemon sends a
+Telegram message and marks the alert as triggered so it is not re-fired.
+
+Setup:
+  1. Create a Telegram bot via @BotFather → /newbot → copy the token.
+  2. Retrieve your chat ID: send /start to your bot, then open
+     https://api.telegram.org/bot<TOKEN>/getUpdates and read "chat.id".
+  3. Copy the sample config:  cp .env.example .env
+  4. Fill in TELEGRAM_BOT_TOKEN (and optionally CHECK_INTERVAL) in .env.
+  5. Run:  python alert_daemon.py
 """
 
 import json
@@ -17,24 +24,48 @@ from dotenv import load_dotenv
 
 load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 
+# Path to the shared alert store written by server.py
 ALERTS_FILE = os.path.join(os.path.dirname(__file__), 'alerts.json')
+
+# Telegram bot token loaded from .env; empty string disables Telegram delivery
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '')
-CHECK_INTERVAL = 60  # giay
+
+# Seconds between price-check cycles; lower = faster alerts but more API calls
+CHECK_INTERVAL = int(os.getenv('CHECK_INTERVAL', '60'))
 
 
-def _load_alerts():
+def _load_alerts() -> list:
+    """Load the alert list from the JSON store.
+
+    Returns:
+        List of alert dicts, or an empty list if the file does not exist.
+    """
     if not os.path.exists(ALERTS_FILE):
         return []
     with open(ALERTS_FILE) as f:
         return json.load(f)
 
 
-def _save_alerts(alerts):
+def _save_alerts(alerts: list) -> None:
+    """Persist the alert list back to the JSON store.
+
+    Args:
+        alerts: Updated list of alert dicts to write.
+    """
     with open(ALERTS_FILE, 'w') as f:
         json.dump(alerts, f, indent=2, ensure_ascii=False)
 
 
-def _get_crypto_price(symbol):
+def _get_crypto_price(symbol: str) -> float:
+    """Fetch the latest spot price for a cryptocurrency pair from Binance.
+
+    Args:
+        symbol: Base asset or full pair, e.g. 'BTC' or 'BTC/USDT'.
+                Defaults to USDT quote when no slash is present.
+
+    Returns:
+        Last traded price as a float.
+    """
     import ccxt
     ex = ccxt.binance({'enableRateLimit': True})
     if '/' not in symbol:
@@ -42,9 +73,21 @@ def _get_crypto_price(symbol):
     return ex.fetch_ticker(symbol)['last']
 
 
-def _get_vn_stock_price(symbol):
-    import contextlib, io
+def _get_vn_stock_price(symbol: str) -> float | None:
+    """Fetch the latest closing price for a Vietnam-listed stock.
+
+    Looks back up to 10 calendar days to find the most recent session.
+
+    Args:
+        symbol: Ticker symbol, e.g. 'VNM', 'TCB'.
+
+    Returns:
+        Latest closing price as a float, or None if no data was found.
+    """
+    import contextlib
+    import io
     from vnstock.api.quote import Quote
+
     end = datetime.now().strftime('%Y-%m-%d')
     start = (datetime.now() - timedelta(days=10)).strftime('%Y-%m-%d')
     buf = io.StringIO()
@@ -55,7 +98,15 @@ def _get_vn_stock_price(symbol):
     return float(df.iloc[-1]['close'])
 
 
-def _send_telegram(chat_id, message):
+def _send_telegram(chat_id: str, message: str) -> None:
+    """Send a text message to a Telegram chat via the bot API.
+
+    Falls back to printing to stdout when TELEGRAM_TOKEN or chat_id is absent.
+
+    Args:
+        chat_id: Telegram chat or user ID to deliver the message to.
+        message: Plain-text message content.
+    """
     if not TELEGRAM_TOKEN:
         print(f"[NO TOKEN] {message}")
         return
@@ -69,7 +120,18 @@ def _send_telegram(chat_id, message):
         print(f"Telegram error: {e}")
 
 
-def check_alerts():
+def check_alerts() -> None:
+    """Run one evaluation pass over all pending (non-triggered) alerts.
+
+    For each alert:
+      - Fetches the current price from the appropriate source.
+      - Evaluates the condition ('above' / 'below').
+      - If triggered: sends a Telegram notification, stamps the alert,
+        and marks it triggered so it is not re-evaluated.
+
+    The alerts.json file is written only when at least one alert fires,
+    reducing unnecessary disk I/O.
+    """
     alerts = _load_alerts()
     changed = False
 
@@ -96,8 +158,8 @@ def check_alerts():
             if triggered:
                 msg = (
                     f"[ALERT {alert['id']}] {symbol}\n"
-                    f"Gia hien tai: {current:,.2f}\n"
-                    f"Dieu kien: {alert['condition']} {alert['price']:,.2f}"
+                    f"Current price: {current:,.2f}\n"
+                    f"Condition: {alert['condition']} {alert['price']:,.2f}"
                 )
                 _send_telegram(alert.get('telegram_chat_id', ''), msg)
                 print(f"{datetime.now().strftime('%H:%M:%S')} {msg}")
@@ -106,17 +168,21 @@ def check_alerts():
                 alert['triggered_price'] = current
                 changed = True
             else:
-                print(f"{datetime.now().strftime('%H:%M:%S')} {symbol}: {current:,.2f} (target {alert['condition']} {alert['price']:,.2f})")
+                print(
+                    f"{datetime.now().strftime('%H:%M:%S')} "
+                    f"{symbol}: {current:,.2f} "
+                    f"(target {alert['condition']} {alert['price']:,.2f})"
+                )
 
         except Exception as e:
-            print(f"Loi kiem tra alert {alert.get('id')}: {e}")
+            print(f"Error checking alert {alert.get('id')}: {e}")
 
     if changed:
         _save_alerts(alerts)
 
 
 if __name__ == '__main__':
-    print(f"Alert daemon da khoi dong. Kiem tra moi {CHECK_INTERVAL}s...")
+    print(f"Alert daemon started. Checking every {CHECK_INTERVAL}s...")
     while True:
         check_alerts()
         time.sleep(CHECK_INTERVAL)
