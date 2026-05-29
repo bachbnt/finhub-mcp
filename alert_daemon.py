@@ -15,7 +15,11 @@ Setup:
   5. Run:  python alert_daemon.py
 """
 
+import contextlib
+import importlib
+import io
 import json
+import logging
 import os
 import time
 import requests
@@ -32,6 +36,32 @@ TELEGRAM_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '')
 
 # Seconds between price-check cycles; lower = faster alerts but more API calls
 CHECK_INTERVAL = int(os.getenv('CHECK_INTERVAL', '60'))
+
+VN_QUOTE_SOURCES = ('VCI', 'KBS', 'MSN')
+CRYPTO_EXCHANGES = ('binance', 'okx', 'bybit', 'kucoin', 'gate', 'mexc')
+
+
+def _quiet(fn, *args, **kwargs):
+    buf = io.StringIO()
+    previous_disable = logging.root.manager.disable
+    logging.disable(logging.WARNING)
+    try:
+        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+            return fn(*args, **kwargs)
+    finally:
+        logging.disable(previous_disable)
+
+
+def _silent_import(module: str, name: str):
+    buf = io.StringIO()
+    previous_disable = logging.root.manager.disable
+    logging.disable(logging.WARNING)
+    try:
+        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+            module_obj = importlib.import_module(module)
+        return getattr(module_obj, name)
+    finally:
+        logging.disable(previous_disable)
 
 
 def _load_alerts() -> list:
@@ -57,7 +87,7 @@ def _save_alerts(alerts: list) -> None:
 
 
 def _get_crypto_price(symbol: str) -> float:
-    """Fetch the latest spot price for a cryptocurrency pair from Binance.
+    """Fetch the latest spot price for a cryptocurrency pair with exchange fallback.
 
     Args:
         symbol: Base asset or full pair, e.g. 'BTC' or 'BTC/USDT'.
@@ -67,10 +97,16 @@ def _get_crypto_price(symbol: str) -> float:
         Last traded price as a float.
     """
     import ccxt
-    ex = ccxt.binance({'enableRateLimit': True})
     if '/' not in symbol:
         symbol = f"{symbol}/USDT"
-    return ex.fetch_ticker(symbol)['last']
+    errors = []
+    for exchange in CRYPTO_EXCHANGES:
+        try:
+            ex = getattr(ccxt, exchange)({'enableRateLimit': True})
+            return ex.fetch_ticker(symbol)['last']
+        except Exception as e:
+            errors.append(f"{exchange}: {e}")
+    raise RuntimeError(f"All crypto exchanges failed ({'; '.join(errors)})")
 
 
 def _get_vn_stock_price(symbol: str) -> float | None:
@@ -84,18 +120,19 @@ def _get_vn_stock_price(symbol: str) -> float | None:
     Returns:
         Latest closing price as a float, or None if no data was found.
     """
-    import contextlib
-    import io
-    from vnstock.api.quote import Quote
+    Quote = _silent_import('vnstock.api.quote', 'Quote')
 
     end = datetime.now().strftime('%Y-%m-%d')
     start = (datetime.now() - timedelta(days=10)).strftime('%Y-%m-%d')
-    buf = io.StringIO()
-    with contextlib.redirect_stdout(buf):
-        df = Quote(symbol=symbol.upper(), source='VCI').history(start=start, end=end, interval='1D')
-    if df.empty:
-        return None
-    return float(df.iloc[-1]['close'])
+    for source in VN_QUOTE_SOURCES:
+        try:
+            quote = _quiet(Quote, symbol=symbol.upper(), source=source)
+            df = _quiet(quote.history, start=start, end=end, interval='1D')
+            if not df.empty:
+                return float(df.iloc[-1]['close'])
+        except Exception:
+            continue
+    return None
 
 
 def _send_telegram(chat_id: str, message: str) -> None:

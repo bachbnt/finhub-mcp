@@ -2,90 +2,79 @@
 
 > Copyright (c) 2026 bachbnt. All rights reserved.
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that gives AI assistants real-time access to financial market data — Vietnam stocks, cryptocurrencies, gold prices, forex rates, and configurable price alerts.
+A local [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server for financial market data: Vietnam stocks, crypto spot and perpetual futures, gold, forex, and price alerts.
 
----
+## Latest
+
+- Added free provider fallback for Vietnam stocks and crypto market data.
+- Added Vietnam stock intraday matched trades via `get_vn_stock_intraday`.
+- Added crypto intraday OHLCV for the last 1-24 hours via `get_crypto_intraday`.
+- Added source/exchange metadata in fallback-aware responses.
+- Updated alert daemon to use the same fallback model for crypto and Vietnam stock prices.
+- Suppressed noisy `vnstock` banners/logging so MCP stdio stays clean.
 
 ## Features
 
 | Category | Tools |
 |---|---|
-| **Vietnam stocks** | Latest price, OHLCV history, market indices overview, symbol search |
-| **Company & financials** | Company profile, income statement, balance sheet, cash flow, ratios |
-| **Crypto (spot)** | Price ticker, OHLCV history, top by volume, order book, recent trades |
-| **Crypto (futures)** | Funding rate + history, open interest |
-| **Market extras** | SJC gold price, Vietcombank forex rates |
-| **Price alerts** | Create / list / delete alerts; Telegram notification via daemon |
-
----
+| Vietnam stocks | Latest price, intraday trades, OHLCV history, market indices overview, symbol search |
+| Company & financials | Company profile, income statement, balance sheet, cash flow, ratios |
+| Crypto spot | Price ticker, intraday OHLCV, OHLCV history, top by volume, order book, recent trades |
+| Crypto futures | Funding rate and history, open interest |
+| Market extras | SJC gold price, Vietcombank forex rates |
+| Price alerts | Create, list, and delete alerts; optional Telegram notification daemon |
 
 ## Requirements
 
 - Python 3.11+
-- [uv](https://github.com/astral-sh/uv) or `pip` for dependency management
-- A Telegram bot token (optional, only needed for alert notifications)
+- `pip` or `uv`
+- Optional Telegram bot token for alert notifications
 
----
-
-## Installation
+Install dependencies:
 
 ```bash
-git clone <repo-url>
-cd finance-mcp
-
-# Create virtual environment and install dependencies
 python -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt   # or: uv pip install -r requirements.txt
-
-# Configure environment
-cp .env.example .env
-# Edit .env and fill in TELEGRAM_BOT_TOKEN if you want alert notifications
+pip install -r requirements.txt
 ```
 
----
+## MCP Setup
 
-## MCP Server Setup
-
-Add the server to your Claude Code configuration (`~/.claude/settings.json`):
+Add this server to your Claude Code MCP config:
 
 ```json
 {
   "mcpServers": {
     "finance": {
-      "command": "/absolute/path/to/finance-mcp/.venv/bin/python",
-      "args": ["/absolute/path/to/finance-mcp/server.py"]
+      "command": "/Users/bachbui/Desktop/source/finance-mcp/.venv/bin/python",
+      "args": ["/Users/bachbui/Desktop/source/finance-mcp/server.py"]
     }
   }
 }
 ```
 
-Restart Claude Code. The `finance` MCP server will be available automatically.
+Restart Claude Code after changing MCP tool signatures so the client reloads the schema.
 
----
+## Provider Fallback
 
-## Alert Daemon
+Default `auto` mode uses free public sources and falls back when a provider errors or returns empty data.
 
-The alert daemon runs as a separate process alongside the MCP server. It reads `alerts.json` (written by the MCP tools) and sends Telegram notifications when price conditions are met.
+| Area | Default fallback order |
+|---|---|
+| VN quote/history | `VCI -> KBS -> MSN` |
+| VN intraday | `KBS -> VCI -> MSN` |
+| VN listing/company/financials | `VCI -> KBS` |
+| Crypto spot/futures | `binance -> okx -> bybit -> kucoin -> gate -> mexc` |
 
-```bash
-# Terminal 1 — MCP server (managed by Claude Code)
-python server.py
+You can pass a single provider or comma-separated fallback list, for example:
 
-# Terminal 2 — alert daemon
-python alert_daemon.py
+```text
+source="KBS"
+source="KBS,VCI"
+exchange="okx,binance"
 ```
 
-### Getting a Telegram chat ID
-
-1. Create a bot via [@BotFather](https://t.me/BotFather) → `/newbot` → copy the token.
-2. Send `/start` to your new bot.
-3. Open `https://api.telegram.org/bot<TOKEN>/getUpdates` in a browser.
-4. Find `"chat": {"id": <your_chat_id>}` in the response.
-5. Set `TELEGRAM_BOT_TOKEN` in `.env`.
-6. Pass the chat ID when calling `add_alert`.
-
----
+Responses include `source` or `exchange` plus `fallback_used` where applicable.
 
 ## Tool Reference
 
@@ -93,74 +82,101 @@ python alert_daemon.py
 
 | Tool | Description |
 |---|---|
-| `get_vn_stock_price(symbol)` | Latest OHLCV + day-over-day change |
-| `get_vn_stock_history(symbol, days)` | Daily OHLCV for up to 365 days back |
-| `get_vn_market_overview()` | VNINDEX, VN30, HNXINDEX snapshot |
-| `search_vn_stock(query)` | Search by ticker or company name (up to 20 results) |
+| `get_vn_stock_price(symbol, source="auto")` | Latest OHLCV snapshot and day-over-day change |
+| `get_vn_stock_intraday(symbol, period="latest", limit=100, page_size=100, pages=5, source="auto")` | Matched trades for today or latest session |
+| `get_vn_stock_history(symbol, days=30, source="auto")` | Daily OHLCV history for 1-365 calendar days |
+| `get_vn_market_overview(source="auto")` | VNINDEX, VN30, and HNXINDEX snapshot |
+| `search_vn_stock(query, source="auto")` | Search by ticker or company name |
+
+`get_vn_stock_intraday` supports:
+
+- `period="latest"`: most recent trading session.
+- `period="today"`: strict current calendar day; may return an empty list on weekends/holidays.
 
 ### Company & Financials
 
 | Tool | Description |
 |---|---|
-| `get_company_overview(symbol)` | Sector, market cap, listing exchange, website |
-| `get_financials(symbol, statement, period)` | `income_statement` / `balance_sheet` / `cash_flow` / `ratio` × `year` / `quarter` |
+| `get_company_overview(symbol, source="auto")` | Company profile, sector, market cap, listing metadata |
+| `get_financials(symbol, statement="income_statement", period="year", source="auto")` | Financial statements and ratios |
 
-### Crypto — Spot
+Supported `statement` values: `income_statement`, `balance_sheet`, `cash_flow`, `ratio`.
 
-| Tool | Description |
-|---|---|
-| `get_crypto_price(symbol, exchange)` | Ticker: last, bid, ask, 24h high/low, volume, VWAP |
-| `get_crypto_history(symbol, timeframe, limit, exchange)` | OHLCV candles — 1m / 5m / 15m / 1h / 4h / 1d / 1w |
-| `get_top_crypto(limit, exchange)` | Top N by 24h USDT volume |
-| `get_crypto_orderbook(symbol, depth, exchange)` | Bid/ask book with spread and spread % |
-| `get_crypto_trades(symbol, limit, exchange)` | Most recent public fills |
+Supported `period` values depend on the upstream source, commonly `year` and `quarter`.
 
-### Crypto — Futures / Perpetuals
+### Crypto Spot
 
 | Tool | Description |
 |---|---|
-| `get_crypto_funding_rate(symbol, exchange, history_limit)` | Current rate, mark price, index price, rate history |
-| `get_crypto_open_interest(symbol, exchange)` | Outstanding contracts in coins and USDT |
+| `get_crypto_price(symbol, exchange="auto")` | Ticker, bid/ask, 24h high/low, volume, VWAP |
+| `get_crypto_intraday(symbol, timeframe="5m", hours=24, max_candles=1000, exchange="auto")` | OHLCV candles for the last 1-24 hours |
+| `get_crypto_history(symbol, timeframe="1d", limit=30, exchange="auto")` | Historical OHLCV candles |
+| `get_top_crypto(limit=10, exchange="auto")` | Top USDT pairs by 24h quote volume |
+| `get_crypto_orderbook(symbol, depth=10, exchange="auto")` | Bid/ask depth and spread |
+| `get_crypto_trades(symbol, limit=20, exchange="auto")` | Recent public trades |
+
+Symbols may be base assets like `BTC` or full pairs like `BTC/USDT`.
+
+Common timeframes: `1m`, `5m`, `15m`, `1h`, `4h`, `1d`, `1w`.
+
+### Crypto Futures
+
+| Tool | Description |
+|---|---|
+| `get_crypto_funding_rate(symbol, exchange="auto", history_limit=8)` | Current funding rate plus recent history |
+| `get_crypto_open_interest(symbol, exchange="auto")` | Current perpetual futures open interest |
 
 ### Market Extras
 
 | Tool | Description |
 |---|---|
-| `get_gold_price()` | SJC gold buy/sell prices across Vietnam branches |
-| `get_forex()` | Vietcombank exchange rates for major currencies |
+| `get_gold_price()` | SJC gold buy/sell prices |
+| `get_forex()` | Vietcombank exchange rates |
 
 ### Alerts
 
 | Tool | Description |
 |---|---|
-| `add_alert(symbol, condition, price, asset_type, telegram_chat_id)` | Create a price alert (`above` / `below`) |
-| `list_alerts()` | Show all alerts and their status |
-| `remove_alert(alert_id)` | Delete an alert by ID |
+| `add_alert(symbol, condition, price, asset_type="crypto", telegram_chat_id="")` | Create a price alert |
+| `list_alerts()` | Show alert store contents |
+| `remove_alert(alert_id)` | Delete an alert |
 
-**Supported exchanges:** `binance`, `okx`, `bybit`, `kucoin`, `gate`, `mexc`
+`condition` must be `above` or `below`. `asset_type` supports `crypto` and `vn_stock`.
 
----
+## Alert Daemon
 
-## Data Sources
+The MCP server writes alerts to `alerts.json`. The daemon polls that file and sends Telegram notifications when conditions are met.
 
-| Data | Source |
-|---|---|
-| Vietnam stock prices & history | [vnstock](https://github.com/thinh-vu/vnstock) via VCI |
-| Company info & financials | vnstock via VCI |
-| Crypto market data | [ccxt](https://github.com/ccxt/ccxt) |
-| SJC gold price | SJC official API |
-| Forex rates | Vietcombank API |
+```bash
+python alert_daemon.py
+```
 
----
+Telegram setup:
+
+1. Create a bot with [@BotFather](https://t.me/BotFather).
+2. Send `/start` to the bot.
+3. Open `https://api.telegram.org/bot<TOKEN>/getUpdates`.
+4. Copy the chat ID.
+5. Set `TELEGRAM_BOT_TOKEN` in `.env`.
+6. Pass the chat ID to `add_alert`.
 
 ## Environment Variables
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `TELEGRAM_BOT_TOKEN` | No | _(empty)_ | Telegram bot token for alert notifications |
+| `TELEGRAM_BOT_TOKEN` | No | empty | Telegram bot token for alert delivery |
 | `CHECK_INTERVAL` | No | `60` | Alert daemon polling interval in seconds |
 
----
+## Data Sources
+
+| Data | Source |
+|---|---|
+| Vietnam stocks | `vnstock` public providers: VCI, KBS, MSN where supported |
+| Crypto | `ccxt` public exchange APIs |
+| Gold | `vnstock` SJC helper |
+| Forex | `vnstock` Vietcombank helper |
+
+TCBS is not wired as a direct adapter in the current code because the installed `vnstock` API classes do not accept `TCBS` as a source for quote/listing/company/financials. Add a dedicated TCBS adapter if you want direct WebSocket or quote-board support.
 
 ## License
 
