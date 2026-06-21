@@ -1,4 +1,4 @@
-# FinHub
+# FinHub MCP
 
 > Copyright (c) 2026 bachbnt. All rights reserved.
 

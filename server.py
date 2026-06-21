@@ -21,7 +21,7 @@ from datetime import datetime, timedelta, timezone
 
 from mcp.server.fastmcp import FastMCP
 
-mcp = FastMCP("finhub")
+mcp = FastMCP("finhub-mcp")
 
 # Path to the shared alerts store used by both server and alert_daemon
 ALERTS_FILE = os.path.join(os.path.dirname(__file__), 'alerts.json')
