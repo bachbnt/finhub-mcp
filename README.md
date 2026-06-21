@@ -46,8 +46,8 @@ Add this server to your Claude Code MCP config:
 {
   "mcpServers": {
     "finance": {
-      "command": "/Users/bachbui/Desktop/source/FinHub/.venv/bin/python",
-      "args": ["/Users/bachbui/Desktop/source/FinHub/server.py"]
+      "command": "/Users/bachbui/Desktop/source/finhub/.venv/bin/python",
+      "args": ["/Users/bachbui/Desktop/source/finhub/server.py"]
     }
   }
 }
