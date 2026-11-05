@@ -25,6 +25,29 @@ A local [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server f
 | Market extras | SJC gold price, Vietcombank forex rates |
 | Price alerts | Create, list, and delete alerts; optional Telegram notification daemon |
 
+## Screenshots
+
+Real responses from the server, captured with an MCP client on 2026-11-05 (market data changes all the time).
+
+| All 22 tools (`tools/list`) | Vietnam stock price and indicators |
+|:-:|:-:|
+| <img src="docs/screenshots/tools.png" alt="tools/list: the 22 tools grouped by category" width="100%"> | <img src="docs/screenshots/vn-stock.png" alt="get_vn_stock_price and get_vn_stock_indicators for VCB" width="100%"> |
+
+| Vietnam market overview | Crypto price and indicators |
+|:-:|:-:|
+| <img src="docs/screenshots/vn-market.png" alt="get_vn_market_overview: VNINDEX, VN30 and HNXINDEX" width="100%"> | <img src="docs/screenshots/crypto.png" alt="get_crypto_price and get_crypto_indicators for BTC/USDT" width="100%"> |
+
+| Funding rate and open interest | Vietcombank forex rates |
+|:-:|:-:|
+| <img src="docs/screenshots/futures.png" alt="get_crypto_funding_rate and get_crypto_open_interest for BTC" width="100%"> | <img src="docs/screenshots/forex.png" alt="get_forex: Vietcombank exchange rates" width="100%"> |
+
+<details>
+<summary>Price alerts (<code>add_alert</code>, <code>list_alerts</code>)</summary>
+
+<img src="docs/screenshots/alerts.png" alt="add_alert twice, then list_alerts" width="60%">
+
+</details>
+
 ## Requirements
 
 - Python 3.11+
