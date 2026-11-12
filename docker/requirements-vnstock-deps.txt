@@ -1,0 +1,11 @@
+# Runtime dependencies of the vendored vnstock 4.x and vnai (installed from PyPI).
+# vnstock/vnai themselves come from docker/vendor/ (see scripts/freeze_vnstock.py).
+beautifulsoup4>=4.12,<5
+importlib-metadata>=7
+openpyxl>=3.1,<4
+packaging>=23
+psutil>=5.9
+pydantic>=2,<3
+pytz>=2024.1
+tenacity>=8.2
+cffi>=1.16

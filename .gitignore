@@ -39,3 +39,7 @@ logs/
 alerts.json
 alerts.json.lock
 .alerts.*.json
+
+# Local vnstock copy used to build the Docker image (third-party code, not redistributed)
+docker/vendor/*
+!docker/vendor/.gitkeep

@@ -1,5 +1,6 @@
-mcp
-vnstock>=4.0.0
-ccxt
-requests
-python-dotenv
+mcp>=1.28,<2
+ccxt>=4.5,<5
+pandas>=2.2,<3
+requests>=2.32,<3
+python-dotenv>=1.0,<2
+defusedxml>=0.7,<1
