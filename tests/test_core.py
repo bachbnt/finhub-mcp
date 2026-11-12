@@ -8,10 +8,8 @@ from unittest.mock import Mock, patch
 
 import alert_daemon
 import server
-from finhub_mcp import alerts
-from finhub_mcp import config
+from finhub_mcp import alerts, config, providers
 from finhub_mcp import indicators as indicator_lib
-from finhub_mcp import providers
 from finhub_mcp.exceptions import ProviderFallbackError
 from finhub_mcp.responses import error, invalid, success
 
@@ -188,12 +186,14 @@ class McpRegistrationTests(unittest.IsolatedAsyncioTestCase):
     async def test_server_registers_expected_tools(self):
         tools = await server.mcp.list_tools()
         names = {tool.name for tool in tools}
-        self.assertEqual(len(names), 22)
+        self.assertEqual(len(names), 38)
         self.assertIn('get_crypto_price', names)
         self.assertIn('get_crypto_indicators', names)
         self.assertIn('get_vn_stock_price', names)
         self.assertIn('get_vn_stock_indicators', names)
         self.assertIn('add_alert', names)
+        for name in ('get_crypto_prices', 'get_vn_top_movers', 'get_world_metal_price', 'get_market_news'):
+            self.assertIn(name, names)
 
     async def test_tool_error_uses_standard_schema(self):
         result = await server.mcp.call_tool('get_vn_market_overview', {'source': 'bad'})

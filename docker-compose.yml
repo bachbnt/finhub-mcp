@@ -1,0 +1,57 @@
+# FinHub MCP in Docker: the HTTP MCP server and the alert daemon, sharing one alerts volume.
+#
+#   cp .env.example .env            # then set FINHUB_HTTP_TOKEN (python server.py --generate-token) and, for
+#                                   # Telegram alerts, TELEGRAM_BOT_TOKEN
+#   .venv/bin/python scripts/freeze_vnstock.py   # once, to include Vietnam data (see Dockerfile)
+#   docker compose up -d --build
+#   claude mcp add --transport http finhub http://127.0.0.1:8000/mcp --header "Authorization: Bearer $FINHUB_HTTP_TOKEN"
+#
+# Run EITHER this OR the local stdio server + launchd daemon, not both: they would keep separate alert stores.
+
+services:
+  mcp:
+    build: .
+    image: finhub-mcp:local
+    restart: unless-stopped
+    environment:
+      # Required. Compose reads it from .env or your shell; the server refuses to start without a token.
+      FINHUB_HTTP_TOKEN: ${FINHUB_HTTP_TOKEN:?set FINHUB_HTTP_TOKEN in .env (python server.py --generate-token)}
+    ports:
+      # Published on this machine only. Put a TLS reverse proxy in front before exposing it any further.
+      - "127.0.0.1:${FINHUB_PORT:-8000}:8000"
+    volumes:
+      - finhub-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /home/finhub:uid=10001,gid=10001,mode=0700
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+
+  daemon:
+    image: finhub-mcp:local
+    command: ["python", "alert_daemon.py"]
+    restart: unless-stopped
+    depends_on:
+      - mcp
+    env_file:
+      - path: .env
+        required: false
+    # The daemon does not need the HTTP token: do not pass it. It only needs TELEGRAM_BOT_TOKEN / CHECK_INTERVAL.
+    environment:
+      FINHUB_HTTP_TOKEN: ""
+    volumes:
+      - finhub-data:/data
+    healthcheck:
+      disable: true
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /home/finhub:uid=10001,gid=10001,mode=0700
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  finhub-data:

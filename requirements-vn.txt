@@ -1,0 +1,3 @@
+# Vietnam market data (optional). vnstock 4.x is no longer installable from PyPI or the vendor index:
+# this only works if a copy is still available. See README, "Vietnam data (vnstock)".
+vnstock>=4.0.4,<5

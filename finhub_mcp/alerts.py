@@ -1,16 +1,21 @@
 # Copyright (c) 2026 bachbnt. All rights reserved.
 
 import contextlib
-import fcntl
 import json
 import math
 import os
 import tempfile
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
-from finhub_mcp.config import get_alert_store_path
+from finhub_mcp.config import get_alert_store_path, get_number
+
+try:
+    import fcntl
+except ImportError:  # Windows
+    fcntl = None
+    import msvcrt
 
 ALERTS_FILE = get_alert_store_path()
 ALERTS_LOCK_FILE = f"{ALERTS_FILE}.lock"
@@ -23,14 +28,35 @@ def set_alerts_file(path: str) -> None:
     ALERTS_LOCK_FILE = f"{path}.lock"
 
 
+def _acquire(lock_file) -> None:
+    if fcntl is not None:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        return
+    lock_file.seek(0)
+    while True:  # LK_LOCK retries for ~10s and then raises, so keep trying
+        try:
+            msvcrt.locking(lock_file.fileno(), msvcrt.LK_LOCK, 1)
+            return
+        except OSError:
+            continue
+
+
+def _release(lock_file) -> None:
+    if fcntl is not None:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+        return
+    lock_file.seek(0)
+    msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+
+
 @contextlib.contextmanager
 def alerts_lock():
     with open(ALERTS_LOCK_FILE, 'a') as lock_file:
-        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        _acquire(lock_file)
         try:
             yield
         finally:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+            _release(lock_file)
 
 
 def read_alerts_unlocked() -> list[dict[str, Any]]:
@@ -85,10 +111,13 @@ def add_alert(symbol: str, condition: str, price: float, asset_type: str = 'cryp
     validation_error, target_price, condition, asset_type = validate_alert(condition, price, asset_type)
     if validation_error:
         return None, validation_error
+    symbol = (symbol or '').strip().upper()
+    if not symbol:
+        return None, "Invalid symbol. Symbol must not be empty."
 
     alert = {
         'id': str(uuid.uuid4())[:8],
-        'symbol': symbol.upper(),
+        'symbol': symbol,
         'asset_type': asset_type,
         'condition': condition,
         'price': target_price,
@@ -132,3 +161,29 @@ def mark_alert_triggered(triggered_alert: dict[str, Any], triggered_price: float
                 write_alerts_unlocked(alerts)
                 return True
     return False
+
+
+def prune_triggered(retention_days: float | None = None) -> int:
+    """Delete alerts triggered more than retention_days ago; returns how many were removed.
+
+    Defaults to the ``alert_retention_days`` config value; 0 keeps everything.
+    """
+    days = get_number('alert_retention_days') if retention_days is None else retention_days
+    if days <= 0:
+        return 0
+    cutoff = datetime.now() - timedelta(days=days)
+
+    def expired(alert: dict[str, Any]) -> bool:
+        if not alert.get('triggered'):
+            return False
+        try:
+            return datetime.fromisoformat(alert['triggered_at']) < cutoff
+        except (KeyError, TypeError, ValueError):
+            return False
+
+    with alerts_lock():
+        alerts = read_alerts_unlocked()
+        kept = [alert for alert in alerts if not expired(alert)]
+        if len(kept) != len(alerts):
+            write_alerts_unlocked(kept)
+        return len(alerts) - len(kept)

@@ -9,12 +9,19 @@ description = "Local MCP server for Vietnam stocks, crypto, forex, gold, and ale
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-  "mcp",
-  "vnstock>=4.0.0",
-  "ccxt",
-  "requests",
-  "python-dotenv",
+  "mcp>=1.28,<2",
+  "ccxt>=4.5,<5",
+  "pandas>=2.2,<3",
+  "requests>=2.32,<3",
+  "python-dotenv>=1.0,<2",
+  "defusedxml>=0.7,<1",
 ]
+
+[project.optional-dependencies]
+# Vietnam market data. vnstock 4.x is no longer published on PyPI or the vendor index, so this extra can only be
+# satisfied from an existing copy (see README, "Vietnam data (vnstock)").
+vn = ["vnstock>=4.0.4,<5"]
+dev = ["ruff>=0.6"]
 
 [project.scripts]
 finhub-mcp-server = "server:main"
@@ -23,3 +30,23 @@ finhub-alert-daemon = "alert_daemon:main"
 [tool.setuptools]
 packages = ["finhub_mcp", "finhub_mcp.tools"]
 py-modules = ["server", "alert_daemon"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+extend-exclude = [".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B"]
+ignore = [
+  "E741",  # `l` is the conventional name for "low" in OHLCV unpacking
+  "B008",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E501"]  # fixture tables are easier to read on one line
+"finhub_mcp/prompts.py" = ["E501"]  # prompt text and markdown tables
+"finhub_mcp/resources.py" = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["finhub_mcp", "server", "alert_daemon"]
