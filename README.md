@@ -81,7 +81,7 @@ Add this server to your Claude Code MCP config:
 ```json
 {
   "mcpServers": {
-    "finance": {
+    "finhub": {
       "command": "/path/to/finhub-mcp/.venv/bin/python",
       "args": ["/path/to/finhub-mcp/server.py"]
     }
